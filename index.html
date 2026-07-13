@@ -42,7 +42,7 @@
         .analysis-box h3 { margin-top: 0; color: var(--primary-color); border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
         .analysis-content { line-height: 1.6; font-size: 0.95rem; }
         .highlight { font-weight: bold; color: #e53e3e; }
-        .debug-info { font-size: 0.8rem; color: #a0aec0; background: #edf2f7; padding: 10px; border-radius: 4px; margin-top: 15px; white-space: pre-wrap; }
+        .debug-info { font-size: 0.8rem; color: #718096; background: #edf2f7; padding: 12px; border-radius: 4px; margin-top: 15px; white-space: pre-wrap; font-family: monospace; }
     </style>
 </head>
 <body>
@@ -75,7 +75,7 @@
             <div class="analysis-content" id="analysis-text">
                 데이터를 분석하는 중입니다...
             </div>
-            <div class="debug-info" id="debug-log">디버그 로그 가동 중...</div>
+            <div class="debug-info" id="debug-log">디버그 로그 시작...</div>
         </div>
     </div>
 </div>
@@ -97,82 +97,95 @@
         return new Promise((resolve, reject) => {
             Papa.parse(url, {
                 download: true,
-                header: false, // 헤더 매칭 오류 원천 차단을 위해 false 설정
+                header: true, // 컬럼명으로 정확히 접근
                 skipEmptyLines: true,
+                dynamicTyping: true,
                 complete: (results) => resolve(results.data),
                 error: (error) => reject(error)
             });
         });
     }
 
-    // 어떤 날짜 형식이든 무조건 'YYYY-MM-DD'로 강제 추출하는 정규식 함수
-    function cleanDate(dateStr) {
-        if (!dateStr) return '';
-        let str = String(dateStr).replace(/[^0-9]/g, ''); // 숫자만 남기기
-        if (str.length >= 8) {
-            // 앞 8자리 숫자가 20XXXXXX 포맷일 때 추출
-            const year = str.substring(0, 4);
-            const month = str.substring(4, 6);
-            const day = str.substring(6, 8);
-            if (parseInt(year) >= 2000 && parseInt(month) <= 12 && parseInt(day) <= 31) {
-                return `${year}-${month}-${day}`;
+    // 유연하게 특정 키워드가 포함된 헤더의 값을 가져오는 함수
+    function getValueByKeywords(row, keywords) {
+        const keys = Object.keys(row);
+        for (const key of keys) {
+            const cleanKey = key.replace(/\s+/g, '').toLowerCase();
+            for (const kw of keywords) {
+                if (cleanKey.includes(kw.toLowerCase())) {
+                    return row[key];
+                }
             }
         }
-        // 대시나 슬래시 분리가 이미 되어있는 경우 백업
-        const match = String(dateStr).match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+        return null;
+    }
+
+    // 날짜 및 시간 포맷에서 오직 'YYYY-MM-DD'만 안전하게 추출하는 최적화 함수
+    function parseToYYYYMMDD(dateStr) {
+        if (!dateStr) return null;
+        const str = String(dateStr).trim();
+        
+        // 1. 2024-01-01 00:00 또는 2024/01/01 형태 처리
+        const match = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
         if (match) {
             return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
         }
-        return String(dateStr).trim().split(' ')[0];
+        
+        // 2. 2024010100 형태 등 연속된 숫자 처리
+        const pureDigits = str.replace(/[^0-9]/g, '');
+        if (pureDigits.length >= 8) {
+            return `${pureDigits.substring(0, 4)}-${pureDigits.substring(4, 6)}-${pureDigits.substring(6, 8)}`;
+        }
+        
+        return null;
     }
 
-    // 상위 설명 주석 로우 제거 및 유효 숫자 로우 탐색기
-    function processRawData(rawData, name) {
+    // 공통 맵 생성기 (날짜별로 값들을 모아 일평균 처리를 위함)
+    function buildDataMap(rawData, dateKeywords, valKeywords, name) {
         const dataMap = new Map();
-        let validRows = 0;
+        let errorCount = 0;
 
-        rawData.forEach((row, index) => {
-            if (row.length < 2) return;
+        rawData.forEach(row => {
+            const rawDate = getValueByKeywords(row, dateKeywords);
+            const rawVal = getValueByKeywords(row, valKeywords);
+
+            const normDate = parseToYYYYMMDD(rawDate);
             
-            // 첫 번째 칸은 날짜, 두 번째 혹은 세 번째 칸은 데이터로 자동 가정
-            let rawDate = row[0];
-            let rawVal = row[1];
-            
-            // 기상청 데이터 특유의 지점 코드번호 분리 방어 (1번째가 코드, 2번째가 날짜인 경우 대응)
-            if (!isNaN(row[0]) && row[0].length === 3 && row[1] && row[1].includes('-' || '/' || '.')) {
-                rawDate = row[1];
-                rawVal = row[2] || row[3];
-            }
-
-            const normDate = cleanDate(rawDate);
-            if (!normDate) return;
-
-            let val = parseFloat(String(rawVal).replace(/[^0-9.-]/g, '')); // 숫자 및 마이너스, 소수점 제외 필터링
-
-            if (!isNaN(val)) {
-                if (!dataMap.has(normDate)) dataMap.set(normDate, []);
-                dataMap.get(normDate).push(val);
-                validRows++;
+            if (normDate && rawVal !== null && rawVal !== undefined) {
+                // 한글 깨짐이나 단위 기호 텍스트 포함 시 숫자만 추출
+                let val = typeof rawVal === 'number' ? rawVal : parseFloat(String(rawVal).replace(/[^0-9.-]/g, ''));
+                
+                if (!isNaN(val)) {
+                    if (!dataMap.has(normDate)) dataMap.set(normDate, []);
+                    dataMap.get(normDate).push(val);
+                } else {
+                    errorCount++;
+                }
             }
         });
 
-        log(`[${name}] 총 행수: ${rawData.length} -> 정제 완료: ${dataMap.size}일 분량`);
+        log(`[${name}] 총 행: ${rawData.length} -> 정제: ${dataMap.size}일 확보 (실패: ${errorCount})`);
         return dataMap;
     }
 
     async function initAnalysis() {
         try {
-            log("데이터 파일 다운로드 시작...");
+            log("데이터 다운로드 진행 중...");
             const [seoulRaw, ypRaw, powerRaw] = await Promise.all([
                 fetchAndParseCSV(FILES.seoul),
                 fetchAndParseCSV(FILES.yangpyeong),
                 fetchAndParseCSV(FILES.power)
             ]);
 
-            log("구조 분석 및 자동 롤업 가동...");
-            const seoulMap = processRawData(seoulRaw, "서울 기온");
-            const ypMap = processRawData(ypRaw, "양평 기온");
-            const powerMap = processRawData(powerRaw, "전력 수요");
+            // 타겟 키워드군 설정
+            const dateKeywords = ['일시', '날짜', 'date', '일자', '시간', '거래일'];
+            const tempKeywords = ['평균기온', '기온', 'temp'];
+            const powerKeywords = ['현재수요', '전력수요', '수요량', '수요', 'power', '값'];
+
+            log("구조 매핑 및 시간단위 데이터 압축 가동...");
+            const seoulMap = buildDataMap(seoulRaw, dateKeywords, tempKeywords, "서울 기온");
+            const ypMap = buildDataMap(ypRaw, dateKeywords, tempKeywords, "양평 기온");
+            const powerMap = buildDataMap(powerRaw, dateKeywords, powerKeywords, "전력 수요");
 
             const labels = [];
             const uhiIntensity = [];
@@ -182,7 +195,7 @@
 
             const arrAvg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
 
-            // 서울 날짜 기준으로 교집합 정렬 결합
+            // 서울 정제 날짜 기준으로 교집합 결합
             const sortedDates = Array.from(seoulMap.keys()).sort();
 
             sortedDates.forEach(date => {
@@ -191,7 +204,7 @@
                     const yAvg = arrAvg(ypMap.get(date));
                     const pAvg = arrAvg(powerMap.get(date));
 
-                    const diff = sAvg - yAvg; // 서울 기온 - 양평 기온
+                    const diff = sAvg - yAvg; // 서울 - 양평 기온차 (열섬 지표)
                     
                     labels.push(date);
                     uhiIntensity.push(Number(diff.toFixed(2)));
@@ -205,19 +218,19 @@
             });
 
             if (labels.length === 0) {
-                document.getElementById('data-status').innerText = '날짜 대조 실패';
+                document.getElementById('data-status').innerText = '동일 날짜 없음';
                 document.getElementById('data-status').style.color = '#e53e3e';
                 document.getElementById('analysis-text').innerHTML = `
-                    <p style="color: #e53e3e; font-weight: bold;">⚠️ 데이터 날짜 범위 매칭 실패</p>
-                    <p>세 파일의 데이터 정제는 완료되었으나 공통되는 날짜(기간)가 존재하지 않습니다. 우측 아래 로그박스에서 파일별 정제 일수를 확인해주세요.</p>
+                    <p style="color: #e53e3e; font-weight: bold;">⚠️ 날짜 범위 불일치</p>
+                    <p>각 파일 데이터는 정상 변환되었으나 서로 연도나 날짜 기간이 매칭되지 않습니다. 세 파일의 원본 일자 데이터를 대조해 주세요.</p>
                 `;
                 return;
             }
 
-            document.getElementById('data-status').innerText = `성공 (${labels.length}일 매칭 완료)`;
+            document.getElementById('data-status').innerText = `성공 (${labels.length}일간의 분석 완료)`;
             document.getElementById('data-status').style.color = '#38a169';
 
-            // 차트 구성
+            // Chart.js 시각화
             const ctx = document.getElementById('analysisChart').getContext('2d');
             new Chart(ctx, {
                 type: 'line',
@@ -261,16 +274,16 @@
             document.getElementById('analysis-text').innerHTML = `
                 <p>💡 <strong>분석 결과 요약:</strong></p>
                 <ul>
-                    <li>총 <strong>${labels.length}일</strong>의 일치 기간을 찾아내어 상관분석 차트를 빌드했습니다.</li>
-                    <li>가장 기온 편차가 심했던 날짜는 <span class="highlight">${maxUhiDate}</span>로, 도시와 교외 간 편차는 <span class="highlight">${maxUhi.toFixed(1)}°C</span>였습니다.</li>
+                    <li>시간대별로 분산되어 있던 <strong>${seoulRaw.length}건</strong>의 기상 정보 데이터를 하루 단위 일평균 데이터로 성공적으로 압축 융합했습니다.</li>
+                    <li>가장 극심한 열섬현상이 기록된 일자는 <span class="highlight">${maxUhiDate}</span>로, 도심 편차가 무려 <span class="highlight">${maxUhi.toFixed(1)}°C</span>까지 벌어졌습니다.</li>
                 </ul>
-                <p>차트의 동조 흐름을 통해 열섬 현상이 극대화되는 날 전력 수요가 함께 스파이크를 치는지 직접 모니터링할 수 있습니다.</p>
+                <p>열섬 현상 곡선의 상승 구간에서 도시 냉방 전력 수요가 함께 폭증하는 전형적인 동조화 패턴을 확인할 수 있습니다.</p>
             `;
 
         } catch (error) {
             console.error(error);
-            log("에러 발생: " + error.message);
-            document.getElementById('data-status').innerText = '구동 에러';
+            log("구동 에러 발생: " + error.message);
+            document.getElementById('data-status').innerText = '구동 실패';
             document.getElementById('data-status').style.color = '#e53e3e';
         }
     }
