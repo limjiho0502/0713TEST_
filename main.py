@@ -7,7 +7,7 @@ st.write("안young하세요! 반갑습니다.")
 st.write("당신이 고른 지역:", 지역)
 
 숫자 = st.slider("당신의 나이", 0, 100)
-st.write("고른 숫자:", 숫자)
+st.write("나이:", 숫자)
  
 if st.button("풍선 날리기"):
 	st.balloons()
