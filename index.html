@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>열섬현상과 전력수요 관계 분석 시스템</title>
-    <!-- Chart.js 및 PapaParse 라이브러리 CDN 로드 -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
     <style>
@@ -14,7 +13,6 @@
             --card-bg: #ffffff;
             --text-color: #2d3748;
         }
-
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--bg-color);
@@ -22,22 +20,9 @@
             margin: 0;
             padding: 20px;
         }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        header {
-            text-align: center;
-            margin-bottom: 30px;
-        }
-
-        header h1 {
-            color: var(--primary-color);
-            margin-bottom: 10px;
-        }
-
+        .container { max-width: 1200px; margin: 0 auto; }
+        header { text-align: center; margin-bottom: 30px; }
+        header h1 { color: var(--primary-color); margin-bottom: 10px; }
         .status-panel {
             display: flex;
             justify-content: space-around;
@@ -47,70 +32,24 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.05);
             margin-bottom: 20px;
         }
-
-        .status-item {
-            text-align: center;
-        }
-
-        .status-item span {
-            display: block;
-            font-size: 0.9rem;
-            color: #718096;
-        }
-
-        .status-item strong {
-            font-size: 1.2rem;
-            color: var(--primary-color);
-        }
-
-        .dashboard {
-            display: grid;
-            grid-template-columns: 2fr 1fr;
-            gap: 20px;
-        }
-
-        @media (max-width: 768px) {
-            .dashboard {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        .card {
-            background: var(--card-bg);
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
-        }
-
-        .chart-container {
-            position: relative;
-            height: 450px;
-            width: 100%;
-        }
-
-        .analysis-box h3 {
-            margin-top: 0;
-            color: var(--primary-color);
-            border-bottom: 2px solid #e2e8f0;
-            padding-bottom: 8px;
-        }
-
-        .analysis-content {
-            line-height: 1.6;
-            font-size: 0.95rem;
-        }
-
-        .highlight {
-            font-weight: bold;
-            color: #e53e3e;
-        }
+        .status-item { text-align: center; }
+        .status-item span { display: block; font-size: 0.9rem; color: #718096; }
+        .status-item strong { font-size: 1.2rem; color: var(--primary-color); }
+        .dashboard { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .dashboard { grid-template-columns: 1fr; } }
+        .card { background: var(--card-bg); padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+        .chart-container { position: relative; height: 450px; width: 100%; }
+        .analysis-box h3 { margin-top: 0; color: var(--primary-color); border-bottom: 2px solid #e2e8f0; padding-bottom: 8px; }
+        .analysis-content { line-height: 1.6; font-size: 0.95rem; }
+        .highlight { font-weight: bold; color: #e53e3e; }
+        .debug-info { font-size: 0.8rem; color: #a0aec0; background: #edf2f7; padding: 10px; border-radius: 4px; margin-top: 15px; white-space: pre-wrap; }
     </style>
 </head>
 <body>
 
 <div class="container">
     <header>
-        <h1>도시 열섬현상 & 전력수요 분석 dashboard</h1>
+        <h1>도시 열섬현상 & 전력수요 분석 Dashboard</h1>
         <p>서울(도시)과 양평(교외)의 기온 차이를 통해 열섬현상이 전력수요에 미치는 영향을 분석합니다.</p>
     </header>
 
@@ -126,19 +65,17 @@
     </div>
 
     <div class="dashboard">
-        <!-- 차트 영역 -->
         <div class="card">
             <div class="chart-container">
                 <canvas id="analysisChart"></canvas>
             </div>
         </div>
-
-        <!-- 인사이트 및 분석 요약 영역 -->
         <div class="card analysis-box">
             <h3>분석 인사이트</h3>
             <div class="analysis-content" id="analysis-text">
-                데이터를 불러오는 중입니다. CSV 파일이 올바른 위치(`index.html`과 동일한 경로)에 있는지 확인해주세요.
+                데이터를 분석하는 중입니다...
             </div>
+            <div class="debug-info" id="debug-log">디버그 로그 가동 중...</div>
         </div>
     </div>
 </div>
@@ -150,166 +87,137 @@
         power: './전력수요.csv'
     };
 
+    let logContent = "";
+    function log(msg) {
+        logContent += msg + "\n";
+        document.getElementById('debug-log').innerText = logContent;
+    }
+
     function fetchAndParseCSV(url) {
         return new Promise((resolve, reject) => {
             Papa.parse(url, {
                 download: true,
-                header: true,
+                header: false, // 헤더 매칭 오류 원천 차단을 위해 false 설정
                 skipEmptyLines: true,
-                dynamicTyping: true,
                 complete: (results) => resolve(results.data),
                 error: (error) => reject(error)
             });
         });
     }
 
-    // 헬퍼 함수: 대소문자/공백/특수문자를 무시하고 매칭되는 키워드의 컬럼값 탐색
-    function getValueByKeyword(row, keywords) {
-        const keys = Object.keys(row);
-        for (const key of keys) {
-            const cleanKey = key.replace(/[^a-zA-Z0-9가-힣]/g, ''); // 공백 및 특수문자 제거
-            for (const kw of keywords) {
-                if (cleanKey.includes(kw)) {
-                    return row[key];
-                }
+    // 어떤 날짜 형식이든 무조건 'YYYY-MM-DD'로 강제 추출하는 정규식 함수
+    function cleanDate(dateStr) {
+        if (!dateStr) return '';
+        let str = String(dateStr).replace(/[^0-9]/g, ''); // 숫자만 남기기
+        if (str.length >= 8) {
+            // 앞 8자리 숫자가 20XXXXXX 포맷일 때 추출
+            const year = str.substring(0, 4);
+            const month = str.substring(4, 6);
+            const day = str.substring(6, 8);
+            if (parseInt(year) >= 2000 && parseInt(month) <= 12 && parseInt(day) <= 31) {
+                return `${year}-${month}-${day}`;
             }
         }
-        // 만약 키워드로 못찾으면 첫 번째 컬럼을 날짜/일시용 기본값으로 리턴하는 방어 코드
-        if (keywords.includes('일시') || keywords.includes('날짜')) {
-            return row[keys[0]];
+        // 대시나 슬래시 분리가 이미 되어있는 경우 백업
+        const match = String(dateStr).match(/(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+        if (match) {
+            return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
         }
-        return null;
+        return String(dateStr).trim().split(' ')[0];
     }
 
-    // 날짜 포맷 초강력 정규화 함수 (다양한 공공데이터 포맷 지원)
-    function normalizeDate(dateStr) {
-        if (!dateStr) return '';
-        let str = String(dateStr).trim();
-        
-        // 1. 2024-07-13 13:00 이거나 2024/07/13 분리
-        const matchStandard = str.match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
-        if (matchStandard) {
-            return `${matchStandard[1]}-${String(matchStandard[2]).padStart(2, '0')}-${String(matchStandard[3]).padStart(2, '0')}`;
-        }
-        
-        // 2. 20240713 또는 202407131200 형태 숫자 연독 포맷 처리
-        const matchPureDigits = str.match(/^(\d{4})(\d{2})(\d{2})/);
-        if (matchPureDigits) {
-            return `${matchPureDigits[1]}-${matchPureDigits[2]}-${matchPureDigits[3]}`;
-        }
+    // 상위 설명 주석 로우 제거 및 유효 숫자 로우 탐색기
+    function processRawData(rawData, name) {
+        const dataMap = new Map();
+        let validRows = 0;
 
-        // 3. 시간 단위가 먼저 혹은 깨진 경우 공백 기준 첫 단어만 추출 시도
-        return str.split(' ')[0];
+        rawData.forEach((row, index) => {
+            if (row.length < 2) return;
+            
+            // 첫 번째 칸은 날짜, 두 번째 혹은 세 번째 칸은 데이터로 자동 가정
+            let rawDate = row[0];
+            let rawVal = row[1];
+            
+            // 기상청 데이터 특유의 지점 코드번호 분리 방어 (1번째가 코드, 2번째가 날짜인 경우 대응)
+            if (!isNaN(row[0]) && row[0].length === 3 && row[1] && row[1].includes('-' || '/' || '.')) {
+                rawDate = row[1];
+                rawVal = row[2] || row[3];
+            }
+
+            const normDate = cleanDate(rawDate);
+            if (!normDate) return;
+
+            let val = parseFloat(String(rawVal).replace(/[^0-9.-]/g, '')); // 숫자 및 마이너스, 소수점 제외 필터링
+
+            if (!isNaN(val)) {
+                if (!dataMap.has(normDate)) dataMap.set(normDate, []);
+                dataMap.get(normDate).push(val);
+                validRows++;
+            }
+        });
+
+        log(`[${name}] 총 행수: ${rawData.length} -> 정제 완료: ${dataMap.size}일 분량`);
+        return dataMap;
     }
 
     async function initAnalysis() {
         try {
-            const [seoulData, ypData, powerData] = await Promise.all([
+            log("데이터 파일 다운로드 시작...");
+            const [seoulRaw, ypRaw, powerRaw] = await Promise.all([
                 fetchAndParseCSV(FILES.seoul),
                 fetchAndParseCSV(FILES.yangpyeong),
                 fetchAndParseCSV(FILES.power)
             ]);
 
-            // 공백과 특수문자가 제거된 상태에서 비교할 핵심 키워드군
-            const dateKeywords = ['일시', '날짜', 'date', '일자', '시간'];
-            const tempKeywords = ['평균기온', '기온', 'temp', '기온C'];
-            const powerKeywords = ['현재수요', '전력수요', '수요량', '값', 'power', '수요'];
+            log("구조 분석 및 자동 롤업 가동...");
+            const seoulMap = processRawData(seoulRaw, "서울 기온");
+            const ypMap = processRawData(ypRaw, "양평 기온");
+            const powerMap = processRawData(powerRaw, "전력 수요");
 
-            // 1. 전력 데이터 맵 생성 (같은 날짜에 여러 데이터가 있을 경우 평균값 필터링을 위한 구조)
-            const powerMap = new Map();
-            powerData.forEach(row => {
-                const rawDate = getValueByKeyword(row, dateKeywords);
-                const rawValue = getValueByKeyword(row, powerKeywords);
-                if (rawDate !== null && rawValue !== null) {
-                    const normDate = normalizeDate(rawDate);
-                    const val = parseFloat(String(rawValue).replace(/,/g, '')); // 쉼표(,) 제거 후 파싱
-                    if (!isNaN(val) && normDate) {
-                        if (!powerMap.has(normDate)) powerMap.set(normDate, []);
-                        powerMap.get(normDate).push(val);
-                    }
-                }
-            });
-
-            // 2. 양평 기온 데이터 맵 생성
-            const ypMap = new Map();
-            ypData.forEach(row => {
-                const rawDate = getValueByKeyword(row, dateKeywords);
-                const rawTemp = getValueByKeyword(row, tempKeywords);
-                if (rawDate !== null && rawTemp !== null) {
-                    const normDate = normalizeDate(rawDate);
-                    const temp = parseFloat(rawTemp);
-                    if (!isNaN(temp) && normDate) {
-                        if (!ypMap.has(normDate)) ypMap.set(normDate, []);
-                        ypMap.get(normDate).push(temp);
-                    }
-                }
-            });
-
-            // 3. 서울 데이터를 기준으로 결합 및 데이터 평균 처리 (일 단위 압축)
             const labels = [];
             const uhiIntensity = [];
             const powerDemand = [];
             let maxUhi = -999;
             let maxUhiDate = '';
 
-            // 서울 기온 데이터 가공
-            const seoulMap = new Map();
-            seoulData.forEach(row => {
-                const rawDate = getValueByKeyword(row, dateKeywords);
-                const rawSeoulTemp = getValueByKeyword(row, tempKeywords);
-                if (rawDate !== null && rawSeoulTemp !== null) {
-                    const normDate = normalizeDate(rawDate);
-                    const temp = parseFloat(rawSeoulTemp);
-                    if (!isNaN(temp) && normDate) {
-                        if (!seoulMap.has(normDate)) seoulMap.set(normDate, []);
-                        seoulMap.get(normDate).push(temp);
-                    }
-                }
-            });
-
-            // 생성된 3개의 맵 교집합 매칭 확인 및 배열화
             const arrAvg = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
 
+            // 서울 날짜 기준으로 교집합 정렬 결합
             const sortedDates = Array.from(seoulMap.keys()).sort();
 
-            sortedDates.forEach(normDate => {
-                if (ypMap.has(normDate) && powerMap.has(normDate)) {
-                    const seoulAvgTemp = arrAvg(seoulMap.get(normDate));
-                    const ypAvgTemp = arrAvg(ypMap.get(normDate));
-                    const powerAvgValue = arrAvg(powerMap.get(normDate));
+            sortedDates.forEach(date => {
+                if (ypMap.has(date) && powerMap.has(date)) {
+                    const sAvg = arrAvg(seoulMap.get(date));
+                    const yAvg = arrAvg(ypMap.get(date));
+                    const pAvg = arrAvg(powerMap.get(date));
 
-                    const diff = seoulAvgTemp - ypAvgTemp; // 열섬 강도 계산
+                    const diff = sAvg - yAvg; // 서울 기온 - 양평 기온
                     
-                    labels.push(normDate);
+                    labels.push(date);
                     uhiIntensity.push(Number(diff.toFixed(2)));
-                    powerDemand.push(Number(powerAvgValue.toFixed(1)));
+                    powerDemand.push(Number(pAvg.toFixed(1)));
 
                     if (diff > maxUhi) {
                         maxUhi = diff;
-                        maxUhiDate = normDate;
+                        maxUhiDate = date;
                     }
                 }
             });
 
-            // 매칭 성공여부 확인 및 대체 브레이크
             if (labels.length === 0) {
-                document.getElementById('data-status').innerText = '구조 파악 불가';
+                document.getElementById('data-status').innerText = '날짜 대조 실패';
                 document.getElementById('data-status').style.color = '#e53e3e';
                 document.getElementById('analysis-text').innerHTML = `
-                    <p style="color: #e53e3e; font-weight: bold;">⚠️ 데이터를 분석할 수 없습니다.</p>
-                    <p>현재 CSV 파일 내용물 형식을 파악하지 못했습니다. 원인 확인용 체크리스트:</p>
-                    <ol>
-                        <li>세 파일 모두 첫 줄에 컴마(,) 분리 형태의 올바른 타이틀 컬럼명(헤더)이 존재하나요?</li>
-                        <li>공통 매칭 기준이 되는 날짜(예: 2024-01-01 혹은 20240101) 기간대가 세 파일 모두 일치하나요?</li>
-                    </ol>
+                    <p style="color: #e53e3e; font-weight: bold;">⚠️ 데이터 날짜 범위 매칭 실패</p>
+                    <p>세 파일의 데이터 정제는 완료되었으나 공통되는 날짜(기간)가 존재하지 않습니다. 우측 아래 로그박스에서 파일별 정제 일수를 확인해주세요.</p>
                 `;
                 return;
             }
 
-            document.getElementById('data-status').innerText = `성공 (${labels.length}개 일자 병합 완료)`;
+            document.getElementById('data-status').innerText = `성공 (${labels.length}일 매칭 완료)`;
             document.getElementById('data-status').style.color = '#38a169';
 
-            // 4. 차트 생성
+            // 차트 구성
             const ctx = document.getElementById('analysisChart').getContext('2d');
             new Chart(ctx, {
                 type: 'line',
@@ -323,7 +231,7 @@
                             backgroundColor: 'rgba(229, 62, 62, 0.05)',
                             yAxisID: 'yTemp',
                             borderWidth: 2,
-                            pointRadius: labels.length > 31 ? 0 : 3, // 데이터가 많으면 선만 깔끔하게 표시
+                            pointRadius: labels.length > 31 ? 0 : 2,
                             tension: 0.1
                         },
                         {
@@ -333,7 +241,7 @@
                             backgroundColor: 'rgba(49, 130, 206, 0.1)',
                             yAxisID: 'yPower',
                             borderWidth: 2,
-                            pointRadius: labels.length > 31 ? 0 : 3,
+                            pointRadius: labels.length > 31 ? 0 : 2,
                             tension: 0.1,
                             fill: true
                         }
@@ -343,40 +251,26 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     scales: {
-                        x: {
-                            grid: { display: false },
-                            title: { display: true, text: '조사 일자' }
-                        },
-                        yTemp: {
-                            type: 'linear',
-                            position: 'left',
-                            title: { display: true, text: '기온 차이 (°C)' },
-                            grid: { color: 'rgba(0,0,0,0.05)' }
-                        },
-                        yPower: {
-                            type: 'linear',
-                            position: 'right',
-                            title: { display: true, text: '전력 수요 (MW)' },
-                            grid: { display: false }
-                        }
+                        x: { grid: { display: false } },
+                        yTemp: { type: 'linear', position: 'left', title: { display: true, text: '기온 차이 (°C)' } },
+                        yPower: { type: 'linear', position: 'right', title: { display: true, text: '전력 수요 (MW)' }, grid: { display: false } }
                     }
                 }
             });
 
-            // 5. 종합 인사이트 도출
             document.getElementById('analysis-text').innerHTML = `
-                <p>💡 <strong>성공적인 분석 요약:</strong></p>
+                <p>💡 <strong>분석 결과 요약:</strong></p>
                 <ul>
-                    <li>총 <strong>${labels.length}일분</strong>의 이종 데이터를 일자 단위로 압축 병합하는 데 성공했습니다.</li>
-                    <li>대도시(서울)와 대조군(양평)의 일평균 기온 편차를 추적하여 시간 경과에 따른 <strong>열섬현상(UHI) 강도</strong>를 측정했습니다.</li>
-                    <li>가장 강력한 열섬 강도가 감지된 날은 <span class="highlight">${maxUhiDate}</span>로, 도심 기온이 교외보다 무려 <span class="highlight">${maxUhi.toFixed(1)}°C</span> 높았습니다.</li>
+                    <li>총 <strong>${labels.length}일</strong>의 일치 기간을 찾아내어 상관분석 차트를 빌드했습니다.</li>
+                    <li>가장 기온 편차가 심했던 날짜는 <span class="highlight">${maxUhiDate}</span>로, 도시와 교외 간 편차는 <span class="highlight">${maxUhi.toFixed(1)}°C</span>였습니다.</li>
                 </ul>
-                <p>그래프의 스파이크(피크치) 구간을 비교해보면, 열섬 강도가 심화되는 주간에 도시 내 냉방 수요 폭증으로 인하여 전력 수요 곡선(파란색 면적) 또한 급격하게 우상향하는 동조화 현상을 명확히 관찰할 수 있습니다.</p>
+                <p>차트의 동조 흐름을 통해 열섬 현상이 극대화되는 날 전력 수요가 함께 스파이크를 치는지 직접 모니터링할 수 있습니다.</p>
             `;
 
         } catch (error) {
             console.error(error);
-            document.getElementById('data-status').innerText = '오류 발생';
+            log("에러 발생: " + error.message);
+            document.getElementById('data-status').innerText = '구동 에러';
             document.getElementById('data-status').style.color = '#e53e3e';
         }
     }
