@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+ <!DOCTYPE html>
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
@@ -144,86 +144,129 @@
 </div>
 
 <script>
-    // 동일 폴더 내의 파일 경로 매핑
     const FILES = {
         seoul: './서울_기온.csv',
         yangpyeong: './양평_기온.csv',
         power: './전력수요.csv'
     };
 
-    // CSV 파일 로드 함수 (Promise 기반)
     function fetchAndParseCSV(url) {
         return new Promise((resolve, reject) => {
             Papa.parse(url, {
                 download: true,
                 header: true,
                 skipEmptyLines: true,
+                dynamicTyping: true, // 숫자 자동 변환
                 complete: (results) => resolve(results.data),
                 error: (error) => reject(error)
             });
         });
     }
 
-    // 메인 데이터 처리 및 시각화 프로세스
+    // 헬퍼 함수: 객체에서 특정 키워드를 포함하는 컬럼의 값을 찾아 반환
+    function getValueByKeyword(row, keywords) {
+        const keys = Object.keys(row);
+        for (const key of keys) {
+            const cleanKey = key.replace(/\s+/g, ''); // 공백 제거
+            for (const kw of keywords) {
+                if (cleanKey.includes(kw)) {
+                    return row[key];
+                }
+            }
+        }
+        return null;
+    }
+
+    // 날짜 포맷 정규화 (예: 2024-07-13 13:00 -> 2024-07-13)
+    // 데이터 종류에 따라 시간 단위 정보가 섞여 있어도 매칭되도록 일자 부분 추출
+    function normalizeDate(dateStr) {
+        if (!dateStr) return '';
+        const match = String(dateStr).trim().match(/^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})/);
+        if (match) {
+            return `${match[1]}-${String(match[2]).padStart(2, '0')}-${String(match[3]).padStart(2, '0')}`;
+        }
+        return String(dateStr).trim();
+    }
+
     async function initAnalysis() {
         try {
-            // 1. 모든 CSV 파일 병렬 로드
             const [seoulData, ypData, powerData] = await Promise.all([
                 fetchAndParseCSV(FILES.seoul),
                 fetchAndParseCSV(FILES.yangpyeong),
                 fetchAndParseCSV(FILES.power)
             ]);
 
-            document.getElementById('data-status').innerText = '로드 완료 및 분석 중';
-            document.getElementById('data-status').style.color = '#38a169';
+            // 공백 및 유연한 컬럼 매핑을 위한 키워드 정의
+            const dateKeywords = ['일시', '날짜', 'date', '일자'];
+            const tempKeywords = ['평균기온', '기온', 'temp'];
+            const powerKeywords = ['현재수요', '전력수요', '수요량', '값', 'power'];
 
-            // 2. 데이터 매핑 및 가공 (날짜/일시 기준 정렬 및 병합)
-            // 일반적인 기상 데이터 표준 컬럼명 체계 파싱 ('일시', '날짜' 등 유연하게 대응 가능)
+            // 1. 전력 데이터 맵 생성 (날짜 정규화 적용)
             const powerMap = new Map();
             powerData.forEach(row => {
-                const date = row['일시'] || row['날짜'] || Object.values(row)[0];
-                const value = row['현재수요(MW)'] || row['전력수요'] || row['수요량'];
-                if(date && value) powerMap.set(date.trim(), parseFloat(value));
+                const rawDate = getValueByKeyword(row, dateKeywords);
+                const rawValue = getValueByKeyword(row, powerKeywords);
+                if (rawDate !== null && rawValue !== null) {
+                    powerMap.set(normalizeDate(rawDate), parseFloat(rawValue));
+                }
             });
 
+            // 2. 양평 기온 데이터 맵 생성
             const ypMap = new Map();
             ypData.forEach(row => {
-                const date = row['일시'] || row['날짜'] || Object.values(row)[0];
-                const temp = row['평균기온(°C)'] || row['기온'] || row['평균기온'];
-                if(date && temp) ypMap.set(date.trim(), parseFloat(temp));
+                const rawDate = getValueByKeyword(row, dateKeywords);
+                const rawTemp = getValueByKeyword(row, tempKeywords);
+                if (rawDate !== null && rawTemp !== null) {
+                    ypMap.set(normalizeDate(rawDate), parseFloat(rawTemp));
+                }
             });
 
-            // 서울 데이터를 기준으로 최종 차트 데이터셋 구축
+            // 3. 서울 데이터를 기준으로 결합
             const labels = [];
-            const uhiIntensity = []; // 열섬 강도 (서울 기온 - 양평 기온)
-            const powerDemand = [];   // 전력 수요
-            let maxUhi = 0;
+            const uhiIntensity = [];
+            const powerDemand = [];
+            let maxUhi = -999;
             let maxUhiDate = '';
 
             seoulData.forEach(row => {
-                const date = row['일시'] || row['날짜'] || Object.values(row)[0];
-                const seoulTempStr = row['평균기온(°C)'] || row['기온'] || row['평균기온'];
-                
-                if (!date) return;
-                const cleanDate = date.trim();
+                const rawDate = getValueByKeyword(row, dateKeywords);
+                const rawSeoulTemp = getValueByKeyword(row, tempKeywords);
 
-                if (ypMap.has(cleanDate) && powerMap.has(cleanDate)) {
-                    const seoulTemp = parseFloat(seoulTempStr);
-                    const ypTemp = ypMap.get(cleanDate);
-                    const diff = seoulTemp - ypTemp; // 서울과 양평의 기온 차이 (열섬현상 지표)
+                if (rawDate === null || rawSeoulTemp === null) return;
+
+                const normDate = normalizeDate(rawDate);
+
+                if (ypMap.has(normDate) && powerMap.has(normDate)) {
+                    const seoulTemp = parseFloat(rawSeoulTemp);
+                    const ypTemp = ypMap.get(normDate);
+                    const diff = seoulTemp - ypTemp; // 열섬 강도
                     
-                    labels.push(cleanDate);
+                    labels.push(normDate);
                     uhiIntensity.push(Number(diff.toFixed(2)));
-                    powerDemand.push(powerMap.get(cleanDate));
+                    powerDemand.push(powerMap.get(normDate));
 
                     if (diff > maxUhi) {
                         maxUhi = diff;
-                        maxUhiDate = cleanDate;
+                        maxUhiDate = normDate;
                     }
                 }
             });
 
-            // 3. 차트 렌더링 (이중 Y축 적용 - 열섬강도 vs 전력수요)
+            // 매칭된 데이터가 없을 때 방어 코드
+            if (labels.length === 0) {
+                document.getElementById('data-status').innerText = '매칭 실패';
+                document.getElementById('data-status').style.color = '#e53e3e';
+                document.getElementById('analysis-text').innerHTML = `
+                    <p style="color: #e53e3e; font-weight: bold;">⚠️ 데이터를 불러왔으나 날짜나 형식이 일치하지 않습니다.</p>
+                    <p>CSV 파일의 첫 번째 줄(헤더) 컬럼명이 <strong>'일시' 또는 '날짜'</strong>, 기온 파일은 <strong>'평균기온'</strong>, 전력 파일은 <strong>'현재수요' 또는 '전력수요'</strong>를 포함하고 있는지 확인해주세요.</p>
+                `;
+                return;
+            }
+
+            document.getElementById('data-status').innerText = `로드 완료 (${labels.length}건 분석)`;
+            document.getElementById('data-status').style.color = '#38a169';
+
+            // 4. 차트 그리기
             const ctx = document.getElementById('analysisChart').getContext('2d');
             new Chart(ctx, {
                 type: 'line',
@@ -237,6 +280,7 @@
                             backgroundColor: 'rgba(229, 62, 62, 0.1)',
                             yAxisID: 'yTemp',
                             borderWidth: 2,
+                            pointRadius: labels.length > 50 ? 1 : 3,
                             tension: 0.1
                         },
                         {
@@ -246,6 +290,7 @@
                             backgroundColor: 'rgba(49, 130, 206, 0.1)',
                             yAxisID: 'yPower',
                             borderWidth: 2,
+                            pointRadius: labels.length > 50 ? 1 : 3,
                             tension: 0.1,
                             fill: true
                         }
@@ -275,7 +320,7 @@
                 }
             });
 
-            // 4. 분석 결과 텍스트 업데이트
+            // 5. 인사이트 출력
             document.getElementById('analysis-text').innerHTML = `
                 <p>💡 <strong>분석 요약:</strong></p>
                 <ul>
@@ -290,18 +335,9 @@
             console.error(error);
             document.getElementById('data-status').innerText = '오류 발생';
             document.getElementById('data-status').style.color = '#e53e3e';
-            document.getElementById('analysis-text').innerHTML = `
-                <p style="color: #e53e3e; font-weight: bold;">⚠️ 데이터를 로드하지 못했습니다.</p>
-                <p>이유 가능성:</p>
-                <ul>
-                    <li>로컬 환경에서 직접 HTML 파일을 더블클릭해 실행하면 브라우저 보안 정책(CORS)으로 인해 CSV를 불러올 수 없습니다. VS Code의 <strong>Live Server</strong> 등의 확장 플러그인을 사용하여 로컬 서버 환경에서 실행해주세요.</li>
-                    <li>파일명(<code>서울_기온.csv</code>, <code>양평_기온.csv</code>, <code>전력수요.csv</code>)이 정확히 일치하는지 다시 확인해주세요.</li>
-                </ul>
-            `;
         }
     }
 
-    // 웹앱 로드 시 데이터 분석 시작
     window.addEventListener('DOMContentLoaded', initAnalysis);
 </script>
 </body>
