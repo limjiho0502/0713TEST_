@@ -6,10 +6,10 @@ st.write("안young하세요! 반갑습니다.")
 지역 = st.selectbox("지역을 골라 보세요", ["서울", "양평", "부산"])
 st.write("당신이 고른 지역:", 지역)
 
-숫자 = st.slider("당신의 나이", 0, 100)
-st.write("나이:", 숫자)
+숫자 = st.slider("나이를 선택해주세요", 0, 100)
+st.write("당신의 나이:", 숫자)
  
-if st.button("풍선 날리기"):
+if st.button("당첨"):
 	st.balloons()
 
 import streamlit as st
