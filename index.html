@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>열섬현상과 전력수요 관계 분석 시스템</title>
+    <!-- Chart.js 및 PapaParse 라이브러리 CDN 로드 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #2b6cb0;
+            --bg-color: #f7fafc;
+            --card-bg: #ffffff;
+            --text-color: #2d3748;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            color: var(--primary-color);
+            margin-bottom: 10px;
+        }
+
+        .status-panel {
+            display: flex;
+            justify-content: space-around;
+            background: var(--card-bg);
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+            margin-bottom: 20px;
+        }
+
+        .status-item {
+            text-align: center;
+        }
+
+        .status-item span {
+            display: block;
+            font-size: 0.9rem;
+            color: #718096;
+        }
+
+        .status-item strong {
+            font-size: 1.2rem;
+            color: var(--primary-color);
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 20px;
+        }
+
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        .card {
+            background: var(--card-bg);
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+
+        .chart-container {
+            position: relative;
+            height: 450px;
+            width: 100%;
+        }
+
+        .analysis-box h3 {
+            margin-top: 0;
+            color: var(--primary-color);
+            border-bottom: 2px solid #e2e8f0;
+            padding-bottom: 8px;
+        }
+
+        .analysis-content {
+            line-height: 1.6;
+            font-size: 0.95rem;
+        }
+
+        .highlight {
+            font-weight: bold;
+            color: #e53e3e;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <header>
+        <h1>도시 열섬현상 & 전력수요 분석 dashboard</h1>
+        <p>서울(도시)과 양평(교외)의 기온 차이를 통해 열섬현상이 전력수요에 미치는 영향을 분석합니다.</p>
+    </header>
+
+    <div class="status-panel">
+        <div class="status-item">
+            <span>분석 대상 파일</span>
+            <strong>서울_기온.csv / 양평_기온.csv / 전력수요.csv</strong>
+        </div>
+        <div class="status-item">
+            <span>데이터 상태</span>
+            <strong id="data-status">데이터 로드 중...</strong>
+        </div>
+    </div>
+
+    <div class="dashboard">
+        <!-- 차트 영역 -->
+        <div class="card">
+            <div class="chart-container">
+                <canvas id="analysisChart"></canvas>
+            </div>
+        </div>
+
+        <!-- 인사이트 및 분석 요약 영역 -->
+        <div class="card analysis-box">
+            <h3>분석 인사이트</h3>
+            <div class="analysis-content" id="analysis-text">
+                데이터를 불러오는 중입니다. CSV 파일이 올바른 위치(`index.html`과 동일한 경로)에 있는지 확인해주세요.
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 동일 폴더 내의 파일 경로 매핑
+    const FILES = {
+        seoul: './서울_기온.csv',
+        yangpyeong: './양평_기온.csv',
+        power: './전력수요.csv'
+    };
+
+    // CSV 파일 로드 함수 (Promise 기반)
+    function fetchAndParseCSV(url) {
+        return new Promise((resolve, reject) => {
+            Papa.parse(url, {
+                download: true,
+                header: true,
+                skipEmptyLines: true,
+                complete: (results) => resolve(results.data),
+                error: (error) => reject(error)
+            });
+        });
+    }
+
+    // 메인 데이터 처리 및 시각화 프로세스
+    async function initAnalysis() {
+        try {
+            // 1. 모든 CSV 파일 병렬 로드
+            const [seoulData, ypData, powerData] = await Promise.all([
+                fetchAndParseCSV(FILES.seoul),
+                fetchAndParseCSV(FILES.yangpyeong),
+                fetchAndParseCSV(FILES.power)
+            ]);
+
+            document.getElementById('data-status').innerText = '로드 완료 및 분석 중';
+            document.getElementById('data-status').style.color = '#38a169';
+
+            // 2. 데이터 매핑 및 가공 (날짜/일시 기준 정렬 및 병합)
+            // 일반적인 기상 데이터 표준 컬럼명 체계 파싱 ('일시', '날짜' 등 유연하게 대응 가능)
+            const powerMap = new Map();
+            powerData.forEach(row => {
+                const date = row['일시'] || row['날짜'] || Object.values(row)[0];
+                const value = row['현재수요(MW)'] || row['전력수요'] || row['수요량'];
+                if(date && value) powerMap.set(date.trim(), parseFloat(value));
+            });
+
+            const ypMap = new Map();
+            ypData.forEach(row => {
+                const date = row['일시'] || row['날짜'] || Object.values(row)[0];
+                const temp = row['평균기온(°C)'] || row['기온'] || row['평균기온'];
+                if(date && temp) ypMap.set(date.trim(), parseFloat(temp));
+            });
+
+            // 서울 데이터를 기준으로 최종 차트 데이터셋 구축
+            const labels = [];
+            const uhiIntensity = []; // 열섬 강도 (서울 기온 - 양평 기온)
+            const powerDemand = [];   // 전력 수요
+            let maxUhi = 0;
+            let maxUhiDate = '';
+
+            seoulData.forEach(row => {
+                const date = row['일시'] || row['날짜'] || Object.values(row)[0];
+                const seoulTempStr = row['평균기온(°C)'] || row['기온'] || row['평균기온'];
+                
+                if (!date) return;
+                const cleanDate = date.trim();
+
+                if (ypMap.has(cleanDate) && powerMap.has(cleanDate)) {
+                    const seoulTemp = parseFloat(seoulTempStr);
+                    const ypTemp = ypMap.get(cleanDate);
+                    const diff = seoulTemp - ypTemp; // 서울과 양평의 기온 차이 (열섬현상 지표)
+                    
+                    labels.push(cleanDate);
+                    uhiIntensity.push(Number(diff.toFixed(2)));
+                    powerDemand.push(powerMap.get(cleanDate));
+
+                    if (diff > maxUhi) {
+                        maxUhi = diff;
+                        maxUhiDate = cleanDate;
+                    }
+                }
+            });
+
+            // 3. 차트 렌더링 (이중 Y축 적용 - 열섬강도 vs 전력수요)
+            const ctx = document.getElementById('analysisChart').getContext('2d');
+            new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: labels,
+                    datasets: [
+                        {
+                            label: '열섬 강도 (서울-양평 기온차, °C)',
+                            data: uhiIntensity,
+                            borderColor: '#e53e3e',
+                            backgroundColor: 'rgba(229, 62, 62, 0.1)',
+                            yAxisID: 'yTemp',
+                            borderWidth: 2,
+                            tension: 0.1
+                        },
+                        {
+                            label: '전력 수요 (MW)',
+                            data: powerDemand,
+                            borderColor: '#3182ce',
+                            backgroundColor: 'rgba(49, 130, 206, 0.1)',
+                            yAxisID: 'yPower',
+                            borderWidth: 2,
+                            tension: 0.1,
+                            fill: true
+                        }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            grid: { display: false },
+                            title: { display: true, text: '조사 일시' }
+                        },
+                        yTemp: {
+                            type: 'linear',
+                            position: 'left',
+                            title: { display: true, text: '기온 차이 (°C)' },
+                            grid: { color: 'rgba(0,0,0,0.05)' }
+                        },
+                        yPower: {
+                            type: 'linear',
+                            position: 'right',
+                            title: { display: true, text: '전력 수요 (MW)' },
+                            grid: { display: false }
+                        }
+                    }
+                }
+            });
+
+            // 4. 분석 결과 텍스트 업데이트
+            document.getElementById('analysis-text').innerHTML = `
+                <p>💡 <strong>분석 요약:</strong></p>
+                <ul>
+                    <li>도시(서울)와 교외지역(양평)의 기온 편차를 계산하여 대도시 <strong>열섬현상(UHI)</strong> 지표를 도출했습니다.</li>
+                    <li>시각화 데이터를 통해 열섬 강도 그래프(적색)와 전력수요(청색)가 유사한 추세로 변동하는지 모니터링할 수 있습니다.</li>
+                    <li>가장 높은 기온 차이를 보인 날은 <span class="highlight">${maxUhiDate}</span>로, 두 지역 간 약 <span class="highlight">${maxUhi.toFixed(1)}°C</span>의 차이가 발생했습니다.</li>
+                </ul>
+                <p>일반적으로 도시 내 열섬현상이 심화될수록 냉방 설비 가동률 증가 등으로 인해 대규모 전력수요 급증 현상이 동반되는 상관관계를 관찰할 수 있습니다.</p>
+            `;
+
+        } catch (error) {
+            console.error(error);
+            document.getElementById('data-status').innerText = '오류 발생';
+            document.getElementById('data-status').style.color = '#e53e3e';
+            document.getElementById('analysis-text').innerHTML = `
+                <p style="color: #e53e3e; font-weight: bold;">⚠️ 데이터를 로드하지 못했습니다.</p>
+                <p>이유 가능성:</p>
+                <ul>
+                    <li>로컬 환경에서 직접 HTML 파일을 더블클릭해 실행하면 브라우저 보안 정책(CORS)으로 인해 CSV를 불러올 수 없습니다. VS Code의 <strong>Live Server</strong> 등의 확장 플러그인을 사용하여 로컬 서버 환경에서 실행해주세요.</li>
+                    <li>파일명(<code>서울_기온.csv</code>, <code>양평_기온.csv</code>, <code>전력수요.csv</code>)이 정확히 일치하는지 다시 확인해주세요.</li>
+                </ul>
+            `;
+        }
+    }
+
+    // 웹앱 로드 시 데이터 분석 시작
+    window.addEventListener('DOMContentLoaded', initAnalysis);
+</script>
+</body>
+</html>
