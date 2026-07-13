@@ -9,7 +9,7 @@ st.write("당신이 고른 지역:", 지역)
 숫자 = st.slider("나이를 선택해주세요", 0, 100)
 st.write("당신의 나이:", 숫자)
  
-if st.button("%*#당첨^$&"):
+if st.button("^당첨^"):
 	st.balloons()
 
 import streamlit as st
