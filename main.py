@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pandas as pd  # 👈 pd 정의 누락 오류 수정
 
 # -----------------------------------------------------------------------------
 # 1. 페이지 및 레이아웃 설정
@@ -27,6 +27,10 @@ def load_and_process_data():
     seoul = seoul[['일시', '기온(°C)']].rename(columns={'기온(°C)': '서울_기온'})
     yangpyeong = yangpyeong[['일시', '기온(°C)']].rename(columns={'기온(°C)': '양평_기온'})
     
+    # 전력수요 컬럼명이 다를 경우를 대비해 명시적 변환 (선택 사항이나 안전을 위해 권장)
+    if '전력수요(MWh)' not in power.columns and '전력수요' in power.columns:
+        power = power.rename(columns={'전력수요': '전력수요(MWh)'})
+    
     # [탭1용] 서울 및 양평 기온 데이터 결합 (일시 기준)
     df_temp = pd.merge(seoul, yangpyeong, on='일시', how='inner')
     df_temp['기온차(서울-양평)'] = df_temp['서울_기온'] - df_temp['양평_기온']
@@ -48,7 +52,7 @@ def load_and_process_data():
 try:
     df_temp, df_power = load_and_process_data()
 except Exception as e:
-    st.error("⚠️ 데이터 파일을 정상적으로 불러오지 못했습니다. 파일명과 위치를 확인해주세요.")
+    st.error(f"⚠️ 데이터 파일을 정상적으로 불러오지 못했습니다. 오류 내용: {e}")
     st.info("💡 필요 파일 목록: `서울_기온.csv`, `양평_기온.csv`, `전력수요.csv` (모두 스크립트 파일과 같은 폴더에 위치해야 합니다.)")
     st.stop()
 
@@ -106,3 +110,4 @@ with tab2:
         st.subheader("③ 월(1~12월)별 평균 전력수요")
         df_month_p = df_power.groupby('월')['전력수요(MWh)'].mean().reset_index()
         st.bar_chart(df_month_p.set_index('월'))
+        
